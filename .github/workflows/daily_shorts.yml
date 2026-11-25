@@ -1,1 +1,45 @@
-h
+name: Daily 4K Viral Shorts Auto-Uploader
+
+on:
+  schedule:
+    # Runs every day at 10:00 AM UTC (3:00 PM PKT)
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-shorts-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg & Fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run 4K Shorts Generator & Uploader
+        run: |
+          python auto_shorts_bot.py
+
+      - name: Save Updated State & Refreshed Token
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add state.json token_cache.json
+          git commit -m "chore: update daily shorts queue and refreshed token" || exit 0
+          git push
