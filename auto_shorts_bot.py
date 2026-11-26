@@ -18,23 +18,19 @@ from googleapiclient.http import MediaFileUpload
 # ==========================================
 # 3-PART SPLIT CREDENTIALS & API KEYS (BYPASS)
 # ==========================================
-# YouTube Data API Key (3 parts, part 2 reversed)
 _YT_K1 = "AIzaSyDGt8MzJ"
-_YT_K2_REV = "S9RvkvrsNRqR"[::-1]  # RqRNsrvkvR9S -> reversed back to S9RvkvrsNRqR
+_YT_K2_REV = "S9RvkvrsNRqR"[::-1]
 _YT_K3 = "OvNJa4FzKw"
 YT_API_KEY = _YT_K1 + _YT_K3 + _YT_K2_REV + "XDFU"
 
-# OAuth Access Token (3 parts)
 _TOK_1 = "ya29.a0AehfTOlQjSqQWbdASOpWMIEw31UdfilLka7lWj71FsRuY86jtSJt9idPnEkHxqdZb4yR9jAuL8Yf9n"
 _TOK_2 = "494VvEwjieRiyKNZJ3oUbZ4aAhCQhDZ-rJqxsdZCaHaMMhR3lJCpdlJiOwhnalMKp5-6h3C8GfcEPQVY"
 _TOK_3 = "NlDHI9ZdHmkEYcEa8yMm1GSncK-5fb9UaKav-uaC4aCgYKAcESARYSFQHGX2Miq60vxcnClFLs18ICRPhB-A0206"
 
-# OAuth Refresh Token (3 parts)
 _REF_1 = "1//03KQPLWAidCr0CgYIARAAGAMSSQF-L9IrXzpn4"
 _REF_2 = "IhmhTfo_nFvow7aU_QuHs7RZSjFtYibbng0xkzZD"
 _REF_3 = "effUj6ikbopBosxDgER9Tniwt1rklhCZcRbV9LPDbYEha8"
 
-# OAuth Client ID & Secret (3 parts)
 _CID_1 = "869454620662-"
 _CID_2 = "u1uhde9ulqkvnr00u03gnmstpmii8hsg"
 _CID_3 = ".apps.googleusercontent.com"
@@ -65,10 +61,10 @@ WORK_DIR = "temp_work"
 os.makedirs(WORK_DIR, exist_ok=True)
 
 DAILY_UPLOAD_LIMIT = 4
-MIN_VIDEO_SEC = 60          # Minimum 1 minute
-CHUNK_WINDOW_SEC = 3600     # 1 hour window = 4 clips
+MIN_VIDEO_SEC = 60
+CHUNK_WINDOW_SEC = 3600
 CLIPS_PER_HOUR = 4
-SCHEDULE_GAP_HOURS = 3      # 3-3 hours gap for scheduled clips
+SCHEDULE_GAP_HOURS = 3
 
 # ==========================================
 # STATE & TOKEN MANAGEMENT
@@ -122,7 +118,7 @@ def get_youtube_upload_service():
     return build("youtube", "v3", credentials=creds)
 
 # ==========================================
-# CHANNEL RESOLVER & VIDEO DISCOVERY (UPLOADS + LIVE)
+# CHANNEL RESOLVER & VIDEO DISCOVERY
 # ==========================================
 def load_channel_links():
     if not os.path.exists(CHANNELS_FILE):
@@ -142,7 +138,10 @@ def resolve_channel_id(channel_url):
 
     try:
         out = subprocess.check_output(
-            ["yt-dlp", "--dump-single-json", "--flat-playlist", "--playlist-items", "1", "--no-warnings", channel_url],
+            [
+                "yt-dlp", "--dump-single-json", "--flat-playlist",
+                "--playlist-items", "1", "--no-warnings", channel_url
+            ],
             timeout=25
         )
         info = json.loads(out.decode("utf-8", errors="ignore"))
@@ -155,7 +154,10 @@ def resolve_channel_id(channel_url):
     handle_m = re.search(r"@([a-zA-Z0-9_.-]+)", channel_url)
     if handle_m:
         q = urllib.parse.quote(handle_m.group(1))
-        api = f"https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&maxResults=1&q={q}&key={urllib.parse.quote(YT_API_KEY)}"
+        api = (
+            "https://www.googleapis.com/youtube/v3/search"
+            f"?part=snippet&type=channel&maxResults=1&q={q}&key={urllib.parse.quote(YT_API_KEY)}"
+        )
         with urllib.request.urlopen(api, timeout=12) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             items = data.get("items", [])
@@ -170,10 +172,9 @@ def parse_iso_duration(iso_dur):
     return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0)
 
 def fetch_latest_video_or_live(channel_id, processed_ids):
-    """Fetches latest video or completed live stream (>= 1 min) from the channel."""
     uploads_pl = "UU" + channel_id[2:]
     pl_url = (
-        f"https://www.googleapis.com/youtube/v3/playlistItems"
+        "https://www.googleapis.com/youtube/v3/playlistItems"
         f"?part=snippet&maxResults=15&playlistId={uploads_pl}&key={urllib.parse.quote(YT_API_KEY)}"
     )
     cand_ids = []
@@ -188,7 +189,7 @@ def fetch_latest_video_or_live(channel_id, processed_ids):
         return None
 
     v_api = (
-        f"https://www.googleapis.com/youtube/v3/videos"
+        "https://www.googleapis.com/youtube/v3/videos"
         f"?part=snippet,contentDetails&id={','.join(cand_ids[:15])}&key={urllib.parse.quote(YT_API_KEY)}"
     )
     with urllib.request.urlopen(v_api, timeout=15) as resp:
@@ -210,7 +211,7 @@ def fetch_latest_video_or_live(channel_id, processed_ids):
     return None
 
 # ==========================================
-# TRANSCRIPT & SCALED CLIP GENERATION (4 CLIPS PER 1 HOUR)
+# TRANSCRIPT & SCALED CLIP GENERATION
 # ==========================================
 def parse_vtt_time(t_str):
     parts = t_str.strip().replace(",", ".").split(":")
@@ -231,7 +232,10 @@ def fetch_transcript_segments(url, video_id):
         ],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
-    vtts = [os.path.join(WORK_DIR, f) for f in os.listdir(WORK_DIR) if f.startswith(f"sub_{video_id}") and f.endswith(".vtt")]
+    vtts = [
+        os.path.join(WORK_DIR, f) for f in os.listdir(WORK_DIR)
+        if f.startswith(f"sub_{video_id}") and f.endswith(".vtt")
+    ]
     if not vtts:
         return []
 
@@ -273,7 +277,6 @@ def fetch_transcript_segments(url, video_id):
     return merged
 
 def plan_clips_for_video(video_meta, segments):
-    """1 min to 1 hour -> 4 clips; > 1 hour -> 4 clips per 1-hour block. Keeps exact Title, Description & Tags."""
     dur = video_meta["duration"]
     hour_blocks = max(1, math.ceil(dur / CHUNK_WINDOW_SEC))
     total_clips_needed = hour_blocks * CLIPS_PER_HOUR
@@ -282,7 +285,10 @@ def plan_clips_for_video(video_meta, segments):
     if clip_len > dur:
         clip_len = max(15.0, dur - 2.0)
 
-    hook_words = {"secret", "never", "best", "crazy", "shocking", "truth", "why", "how", "stop", "wait", "watch", "kya", "dekho", "sach", "win", "impossible"}
+    hook_words = {
+        "secret", "never", "best", "crazy", "shocking", "truth", "why",
+        "how", "stop", "wait", "watch", "kya", "dekho", "sach", "win", "impossible"
+    }
     windows = []
 
     if segments and dur > 30:
@@ -327,10 +333,16 @@ def plan_clips_for_video(video_meta, segments):
     planned = []
     for idx, (_sc, st, en, sub_segs) in enumerate(chosen, 1):
         base_t = orig_title[:84].strip()
-        clip_title = f"{base_t} (Part {idx}) #shorts" if "#shorts" not in base_t.lower() else f"{base_t} (Part {idx})"
+        if "#shorts" not in base_t.lower():
+            clip_title = f"{base_t} (Part {idx}) #shorts"
+        else:
+            clip_title = f"{base_t} (Part {idx})"
         clip_title = clip_title[:100]
 
-        clip_desc = f"{orig_desc}\n\n#shorts".strip() if "#shorts" not in orig_desc.lower() else orig_desc
+        if "#shorts" not in orig_desc.lower():
+            clip_desc = f"{orig_desc}\n\n#shorts".strip()
+        else:
+            clip_desc = orig_desc
 
         hook_line = ""
         if sub_segs:
@@ -340,7 +352,11 @@ def plan_clips_for_video(video_meta, segments):
             hook_line = f"PART {idx}: {orig_title.upper()[:34]}"
 
         clip_subs = [
-            {"start": round(max(0.0, s["start"] - st), 2), "end": round(min(en - st, s["end"] - st), 2), "text": s["text"]}
+            {
+                "start": round(max(0.0, s["start"] - st), 2),
+                "end": round(min(en - st, s["end"] - st), 2),
+                "text": s["text"]
+            }
             for s in sub_segs if s["end"] > st and s["start"] < en
         ]
 
@@ -371,28 +387,29 @@ def sec_to_ass_time(sec):
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 def write_mrbeast_pop_ass(ass_path, clip):
-    """Generates MrBeast Pop (White + Gold Impact + Red Hook Banner) ASS subtitle file."""
     dur = max(1.0, clip["end_sec"] - clip["start_sec"])
     hook = clip.get("hook_caption", "").replace("\n", " ")
 
-    header = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
-WrapStyle: 1
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: MrBeastSub,DejaVu Sans,70,&H00FFFFFF,&H0000D7FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,7,4,2,70,70,420,1
-Style: MrBeastHook,DejaVu Sans,50,&H00FFFFFF,&H0000D7FF,&H00101010,&HD00000FF,-1,0,0,0,100,100,0,0,3,10,0,8,60,60,230,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
+    header_lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: 1080",
+        "PlayResY: 1920",
+        "WrapStyle: 1",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        "Style: MrBeastSub,DejaVu Sans,70,&H00FFFFFF,&H0000D7FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,7,4,2,70,70,420,1",
+        "Style: MrBeastHook,DejaVu Sans,50,&H00FFFFFF,&H0000D7FF,&H00101010,&HD00000FF,-1,0,0,0,100,100,0,0,3,10,0,8,60,60,230,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+    ]
     events = []
     if hook:
-        events.append(f"Dialogue: 1,0:00:00.00,{sec_to_ass_time(min(dur, 4.5))},MrBeastHook,,0,0,0,,{hook}")
+        t_hook = sec_to_ass_time(min(dur, 4.5))
+        events.append(f"Dialogue: 1,0:00:00.00,{t_hook},MrBeastHook,,0,0,0,,{hook}")
 
     subs = clip.get("subtitles", [])
     if subs:
@@ -411,18 +428,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 w_list = ch.split()
                 if len(w_list) >= 2:
                     w_list[-1] = r"{\c&H0000D7FF&}" + w_list[-1] + r"{\c&H00FFFFFF&}"
-                events.append(f"Dialogue: 0,{sec_to_ass_time(cs)},{sec_to_ass_time(ce)},MrBeastSub,,0,0,0,,{' '.join(w_list)}")
+                t_start = sec_to_ass_time(cs)
+                t_end = sec_to_ass_time(ce)
+                events.append(f"Dialogue: 0,{t_start},{t_end},MrBeastSub,,0,0,0,,{' '.join(w_list)}")
     else:
-        lines = [clip["title"].upper()[:45], "WATCH TILL THE END 🔥"]
+        lines = [clip["title"].upper()[:45], "WATCH TILL THE END"]
         pt = dur / len(lines)
         for idx, ln in enumerate(lines):
-            events.append(f"Dialogue: 0,{sec_to_ass_time(idx * pt)},{sec_to_ass_time((idx + 1) * pt)},MrBeastSub,,0,0,0,,{ln}")
+            t_start = sec_to_ass_time(idx * pt)
+            t_end = sec_to_ass_time((idx + 1) * pt)
+            events.append(f"Dialogue: 0,{t_start},{t_end},MrBeastSub,,0,0,0,,{ln}")
 
     with open(ass_path, "w", encoding="utf-8") as f:
-        f.write(header + "\n".join(events) + "\n")
+        f.write("\n".join(header_lines + events) + "\n")
 
 def download_source_4k(url, video_id):
-    """Downloads best quality up to 4K (2160p) using Android/Web client."""
     out_file = os.path.join(WORK_DIR, f"src_{video_id}.mp4")
     if os.path.exists(out_file) and os.path.getsize(out_file) > 100000:
         return out_file
@@ -478,14 +498,13 @@ def render_short_clip(source_file, clip):
     return out_mp4
 
 # ==========================================
-# YOUTUBE UPLOADER (1 IMMEDIATE PUBLIC + 3 SCHEDULED EVERY 3 HOURS)
+# YOUTUBE UPLOADER
 # ==========================================
 def upload_short_to_youtube(yt_service, mp4_path, clip, publish_at_iso=None):
     status_obj = {
         "selfDeclaredMadeForKids": False
     }
     if publish_at_iso:
-        # YouTube Data API requires privacyStatus='private' when setting publishAt
         status_obj["privacyStatus"] = "private"
         status_obj["publishAt"] = publish_at_iso
     else:
@@ -518,4 +537,13 @@ def main():
     uploaded_today = state["daily_log"].get(today_str, 0)
 
     if uploaded_today >= DAILY_UPLOAD_LIMIT:
-        print(f"Daily limit ({DAILY_UPLOAD_LIMIT} Shorts) already reached for {today_str}.
+        print(f"Daily limit ({DAILY_UPLOAD_LIMIT} Shorts) reached for {today_str}.")
+        print("Remaining clips will upload tomorrow.")
+        return
+
+    yt_service = get_youtube_upload_service()
+
+    if not state["pending_clips"]:
+        all_channels = load_channel_links()
+        if not all_channels:
+            print("No cha
